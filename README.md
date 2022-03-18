@@ -26,7 +26,7 @@ NOTE: use plutus-app commit 4edc082309c882736e9dec0132a3c936fe63b4ea
 
 ## Run playground
 
-### Run nix-shell in [plutus-app][https://github.com/input-output-hk/plutus-apps] repository
+### Run nix-shell in [plutus-app](https://github.com/input-output-hk/plutus-apps) repository
 
 ```
 cd plutus-app
