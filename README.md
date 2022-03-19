@@ -94,7 +94,7 @@ cd plutus-playground-client
 npm start
 ```
 
-Playground should be accesible in: https://0.0.0.0:8009/
+Playground should be accesible at: https://0.0.0.0:8009/
 
 
 ### Run documentation
@@ -106,5 +106,5 @@ Inside a plutus-app's nix-shell run:
 build-and-serve-docs
 ```
 
-Playground should be accesible in: http://localhost:8002/haddock
+Playground should be accesible at: http://localhost:8002/haddock
 
