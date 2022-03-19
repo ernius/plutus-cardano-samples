@@ -37,6 +37,10 @@ NOTE: use plutus-app commit 4edc082309c882736e9dec0132a3c936fe63b4ea
 - Wallet 1 and 2 makes 2 bounties with different datums in the same slot, Wallet tries to consume
 - Introduce MathBountyFilter fixing previous problem, and test again previous case
 
+## Guessing Game Contract
+
+This is the same guessing the secret word game contract as the example in the Plutus Playground, but hiding datum by hashing it.
+
 ## Run playground
 
 ### Run nix-shell in [plutus-app](https://github.com/input-output-hk/plutus-apps) repository

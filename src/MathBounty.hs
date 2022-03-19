@@ -10,8 +10,8 @@
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
 {-# LANGUAGE DerivingStrategies  #-}
-
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
+
 -- Simple implementation of a math bounty contract
 module MathBounty where
   
@@ -37,6 +37,7 @@ import           Text.Printf          (printf)
 
 -- | This method is the spending validator (which gets lifted to its on-chain representation).
 --   validate that the square of the proposed value is the expected solution
+--   The validation function (Datum -> Redeemer -> ScriptContext -> Bool)
 {-# INLINABLE validateSolution #-}
 validateSolution :: Integer -> Integer -> ScriptContext -> Bool
 validateSolution y x _ = traceIfFalse "Wrong guess" $ x*x == y
