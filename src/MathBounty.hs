@@ -56,7 +56,10 @@ bountyInstance = Scripts.mkTypedValidator @MathBounty
     where
       wrap = Scripts.wrapValidator @Integer @Integer
 
+------------------------------------------------------------
 -- | Off-Chain code
+------------------------------------------------------------
+
 -- | The address of the bounty (the hash of its validator script)
 bountyAddress :: Address
 bountyAddress = Ledger.scriptAddress (Scripts.validatorScript bountyInstance)

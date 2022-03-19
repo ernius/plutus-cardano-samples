@@ -66,16 +66,6 @@ gameInstance = Scripts.mkTypedValidator @Game
     $$(PlutusTx.compile [|| wrap ||]) where
         wrap = Scripts.wrapValidator @HashedString @ClearString
 
--- create a data script for the guessing game by hashing the string
--- and lifting the hash to its on-chain representation
-hashString :: Haskell.String -> HashedString
-hashString = HashedString . sha2_256 . toBuiltin . C.pack
-
--- create a redeemer script for the guessing game by lifting the
--- string to its on-chain representation
-clearString :: Haskell.String -> ClearString
-clearString = ClearString . toBuiltin . C.pack
-
 -- | The validation function (Datum -> Redeemer -> ScriptContext -> Bool)
 {-# INLINABLE validateGuess #-}
 validateGuess :: HashedString -> ClearString -> ScriptContext -> Bool
@@ -96,6 +86,16 @@ gameValidator = Scripts.validatorScript gameInstance
 -- | The address of the game (the hash of its validator script)
 gameAddress :: Address
 gameAddress = Ledger.scriptAddress gameValidator
+
+-- create a data script for the guessing game by hashing the string
+-- and lifting the hash to its on-chain representation
+hashString :: Haskell.String -> HashedString
+hashString = HashedString . sha2_256 . toBuiltin . C.pack
+
+-- create a redeemer script for the guessing game by lifting the
+-- string to its on-chain representation
+clearString :: Haskell.String -> ClearString
+clearString = ClearString . toBuiltin . C.pack
 
 -- | Parameters for the "lock" endpoint
 data LockParams = LockParams
