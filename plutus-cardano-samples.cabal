@@ -11,6 +11,7 @@ License-files:       LICENSE
 library
   hs-source-dirs:      src
   exposed-modules:     MathBounty
+                     , MathBountyFilter
                      , MathBounty2
   build-depends:       aeson
                      , base ^>=4.14.1.0

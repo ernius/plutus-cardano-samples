@@ -22,7 +22,20 @@ They do this by submitting a transaction with their answer for `x` as the Redeem
 
 NOTE: use plutus-app commit 4edc082309c882736e9dec0132a3c936fe63b4ea
 
+### Code 
 
+- MathBounty: first version
+- MathBountyFilter: fix consuming wrong datum contracts
+- MathBount2: just consumes one utxo in another way
+
+### Playground test cases
+
+- Wallet 1 make a bounty, and Wallet 2 consumes it
+- Wallet 1 make 2 bounties in the same slot, Wallet 2 consumes the existen one
+- Wallet 1 make 2 bounties same datum in the different slots, Wallet 2 consumes them
+- Wallet 1 and 2 makes 2 bounties with same datum in the same slot, Wallet 2 consumes all
+- Wallet 1 and 2 makes 2 bounties with different datums in the same slot, Wallet tries to consume
+- Introduce MathBountyFilter fixing previous problem, and test again previous case
 
 ## Run playground
 
@@ -64,3 +77,4 @@ build-and-serve-docs
 ```
 
 Playground should be accesible in: http://localhost:8002/haddock
+
