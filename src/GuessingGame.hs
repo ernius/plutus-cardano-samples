@@ -29,7 +29,7 @@ import Data.ByteString.Char8 qualified as C
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (catMaybes)
-import Ledger (Address, Datum (Datum), ScriptContext, Validator, Value)
+import Ledger (Address, Datum (Datum), ScriptContext, Validator, Value, getCardanoTxId)
 import Ledger qualified
 import Ledger.Ada qualified as Ada
 import Ledger.Constraints qualified as Constraints
@@ -40,6 +40,7 @@ import Plutus.Contract
 import PlutusTx qualified
 import PlutusTx.Prelude hiding (pure, (<$>))
 import Prelude qualified as Haskell
+import           Text.Printf          (printf)
 
 
 
@@ -47,11 +48,13 @@ import Prelude qualified as Haskell
 -- | On-Chain code
 ------------------------------------------------------------
 
-newtype HashedString = HashedString BuiltinByteString deriving newtype (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
+newtype HashedString = HashedString BuiltinByteString
+  deriving newtype (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
 
 PlutusTx.makeLift ''HashedString
 
-newtype ClearString = ClearString BuiltinByteString deriving newtype (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
+newtype ClearString = ClearString BuiltinByteString
+  deriving newtype (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
 
 PlutusTx.makeLift ''ClearString
 
@@ -117,15 +120,17 @@ type GameSchema =
         .\/ Endpoint "guess" GuessParams
 
 -- | The "lock" contract endpoint. See note [Contract endpoints]
-lock :: AsContractError e => Promise () GameSchema e ()
-lock = endpoint @"lock" @LockParams $ \(LockParams secret amt) -> do
-    logInfo @Haskell.String $ "Pay " <> Haskell.show amt <> " to the script"
+lock :: AsContractError e => LockParams -> Contract () GameSchema e ()
+lock (LockParams secret amt) = do
     let tx         = Constraints.mustPayToTheScript (hashString secret) amt
-    void (submitTxConstraints gameInstance tx)
+    ledgerTx <- submitTxConstraints gameInstance tx
+    void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
+    logInfo @Haskell.String $ "Pay " <> Haskell.show amt <> " to the script"    
+    logInfo @Haskell.String $ printf "Put secret %s" secret
 
 -- | The "guess" contract endpoint. See note [Contract endpoints]
-guess :: AsContractError e => Promise () GameSchema e ()
-guess = endpoint @"guess" @GuessParams $ \(GuessParams theGuess) -> do
+guess :: AsContractError e => GuessParams -> Contract () GameSchema e ()
+guess (GuessParams theGuess) = do
     -- Wait for script to have a UTxO of a least 1 lovelace
     logInfo @Haskell.String "Waiting for script to have a UTxO of at least 1 lovelace"
     utxos <- fundsAtAddressGeq gameAddress (Ada.lovelaceValueOf 1)
@@ -136,6 +141,7 @@ guess = endpoint @"guess" @GuessParams $ \(GuessParams theGuess) -> do
     -- Log a message saying if the secret word was correctly guessed
     let hashedSecretWord = findSecretWordValue utxos
         isCorrectSecretWord = fmap (`isGoodGuess` redeemer) hashedSecretWord == Just True
+        
     if isCorrectSecretWord
         then logWarn @Haskell.String "Correct secret word! Submitting the transaction"
         else logWarn @Haskell.String "Incorrect secret word, but still submiting the transaction"
@@ -144,7 +150,9 @@ guess = endpoint @"guess" @GuessParams $ \(GuessParams theGuess) -> do
     -- In a real use-case, we would not submit the transaction if the guess is
     -- wrong.
     logInfo @Haskell.String "Submitting transaction to guess the secret word"
-    void (submitTxConstraintsSpending gameInstance utxos tx)
+    ledgerTx <- submitTxConstraintsSpending gameInstance utxos tx
+    void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
+    logInfo @Haskell.String "Submitted"
 
 -- | Find the secret word in the Datum of the UTxOs
 findSecretWordValue :: Map TxOutRef ChainIndexTxOut -> Maybe HashedString
@@ -156,11 +164,6 @@ secretWordValue :: ChainIndexTxOut -> Maybe HashedString
 secretWordValue o = do
   Datum d <- either (const Nothing) Just (_ciTxOutDatum o)
   PlutusTx.fromBuiltinData d
-
-game :: AsContractError e => Contract () GameSchema e ()
-game = do
-    logInfo @Haskell.String "Waiting for guess or lock endpoint..."
-    selectList [lock, guess]
 
 {- Note [Contract endpoints]
 
@@ -189,7 +192,10 @@ parameters can be entered.
 -}
 
 endpoints :: AsContractError e => Contract () GameSchema e ()
-endpoints = game
+endpoints = awaitPromise (lock' `select` guess') >> endpoints
+  where
+    lock' = endpoint @"lock" lock
+    guess' = endpoint @"guess" guess
 
 mkSchemaDefinitions ''GameSchema
 

@@ -41,6 +41,12 @@ NOTE: use plutus-app commit 4edc082309c882736e9dec0132a3c936fe63b4ea
 
 This is the same guessing the secret word game contract as the example in the Plutus Playground, but hiding datum by hashing it.
 
+### Playground test cases
+
+- Wallet 1 make locks, and Wallet 2 guesses
+- Wallet 1 and Wallet 2 locks 2 equal secrets in the same slot, Wallet 2 guesses
+- Wallet 1 and Wallet 2 locks 2 different secrets in the same slot, Wallet 2 guesses, propose as homework fix the problem as done with Math Bounty
+
 ## Multi-Stage Protocol - Math Bounty Into Pin Lock
 
 This is combination of the math bounty contract (as stage 1) and the pin/pass lock contract (as stage 2). Do note, this example only provides the off-chain logic to perform the transition between the stages and to go in/out of the protocol. There is no on-chain check that forces the user to go from stage 1 (math bounty) to stage 2 (pin/pass lock), and as such this is not a "true" multi-stage protocol. Future examples will cover how to specifically enforce this on-chain.
