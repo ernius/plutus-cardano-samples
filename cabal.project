@@ -1,11 +1,8 @@
 -- Bump this if you need newer packages.
-index-state: 2021-10-20T00:00:00Z
+index-state: 2022-01-22T00:00:00Z
 
 packages: plutus-cardano-samples.cabal
 
-package plutus-cardano-samples
-  haddock-options: "--optghc=-fplugin-opt PlutusTx.Plugin:defer-errors"
-  
 -- We never, ever, want this.
 write-ghc-environment-files: never
 
@@ -18,11 +15,6 @@ test-show-details: streaming
 
 allow-newer:
   size-based:template-haskell
-
-constraints:
-  -- Newer Hashable have instances for Set, which breaks beam-migrate
-  -- which declares its own instances of Hashable Set
-  hashable < 1.3.4.0
 
 -- These packages appear in our dependency tree and are very slow to build.
 -- Empirically, turning off optimization shaves off ~50% build time.
@@ -47,27 +39,62 @@ package cardano-wallet-launcher
 package cardano-wallet-core-integration
   optimization: False
 
+package cardano-ledger-shelley-ma
+  haddock-options: "--optghc=-fplugin-opt PlutusTx.Plugin:defer-errors"
+  documentation:false
+
+package cardano-ledger-shelley
+  haddock-options: "--optghc=-fplugin-opt PlutusTx.Plugin:defer-errors"
+  documentation:false
+
 package plutus-contract
   haddock-options: "--optghc=-fplugin-opt PlutusTx.Plugin:defer-errors"
-
+  documentation:false
+  
 package plutus-use-cases
   haddock-options: "--optghc=-fplugin-opt PlutusTx.Plugin:defer-errors"
 
 package plutus-ledger
   haddock-options: "--optghc=-fplugin-opt PlutusTx.Plugin:defer-errors"
-  
-  
+
+package cardano-data
+  haddock-options: "--optghc=-fplugin-opt PlutusTx.Plugin:defer-errors"
+  documentation:false
+
+package plutus-cardano-samples
+  haddock-options: "--optghc=-fplugin-opt PlutusTx.Plugin:defer-errors"
+  documentation:false
+
+package byron-spec-ledger
+  haddock-options: "--optghc=-fplugin-opt PlutusTx.Plugin:defer-errors"
+  documentation:false
+
+package cardano-ledger-core
+  haddock-options: "--optghc=-fplugin-opt PlutusTx.Plugin:defer-errors"
+  documentation:false
+
+package plutus-ledger-api
+  haddock-options: "--optghc=-fplugin-opt PlutusTx.Plugin:defer-errors"
+  documentation:false
+
+package set-algebra
+  haddock-options: "--optghc=-fplugin-opt PlutusTx.Plugin:defer-errors"
+  documentation:false
+
 source-repository-package
   type: git
   location: https://github.com/input-output-hk/plutus-apps.git
-  tag:4edc082309c882736e9dec0132a3c936fe63b4ea
+  tag:13836ecf59649ca522471417b07fb095556eb981
   subdir:
     freer-extras
     playground-common
+    plutus-chain-index
     plutus-chain-index-core
     plutus-contract
     plutus-ledger
     plutus-ledger-constraints
+    plutus-pab
+    plutus-use-cases
     quickcheck-dynamic
 
 -- Direct dependency.
@@ -114,13 +141,13 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/input-output-hk/servant-purescript
-  tag: ebea59c7bdfc0338d83fca772b9a57e28560bcde
+  tag: 44e7cacf109f84984cd99cd3faf185d161826963
 
 -- Direct dependency.
 source-repository-package
   type: git
   location: https://github.com/input-output-hk/purescript-bridge
-  tag: 366fc70b341e2633f3ad0158a577d52e1cd2b138
+  tag: 47a1f11825a0f9445e0f98792f79172efef66c00
 
 -- Direct dependency.
 -- Compared to others, cardano-wallet doesn't bump dependencies very often.

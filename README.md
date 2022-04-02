@@ -67,11 +67,11 @@ This `target` is an integer and is placed within the Datum of the locked output 
 
 Once the funds are locked under the contract with the datum, anyone can solve the math bounty by providing the correct number (providing the correct `x`). They do this by submitting a transaction with their answer for `x` as the Redeemer and a lock password. If their answer is correct and the UTXO can be spent, the endpoint will lock the funds into a new contract that will validate that the hash of the passwords match, and then they get to spend the locked bounty UTXO, and take the funds from within it.
 
-The contract provides three endpoints:
+This application three endpoints:
 
-* Publish the problem and prize
-* Send a solution and lock the funds (if solved)
-* Unlock the funds
+* Publish the problem and prize (Math bounty contract)
+* Send a solution to the bounty, and lock the funds under a secret word (Guessing game)
+* Unlock the funds that were originally
 
 ## Run playground
 

@@ -162,7 +162,7 @@ solution (SolutionParams theProposal lockPin) = do
     unspentOutputs <- utxosAt bountyAddress
 
     -- calculate the total amount in the bounty
-    let amt = Prelude.foldl1 (<>) $ map (view ciTxOutValue) (Map.elems unspentOutputs)
+    let amt = Prelude.foldl1 (<>) $ map _ciTxOutValue (Map.elems unspentOutputs)
 
     let tx =  Constraints.mustPayToOtherScript pinlockHash (Datum $ PlutusTx.toBuiltinData (hashString lockPin)) amt     -- lock the amount 
           <>  collectFromScript unspentOutputs theProposal
