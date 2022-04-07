@@ -14,6 +14,7 @@ library
                      , MathBountyFilter
                      , MathBounty2
                      , MathBounty3
+                     , MathBounty4
                      , MathBountyDeadline
                      , GuessingGame
                      , GuessingGameFilter

@@ -14,7 +14,7 @@
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
 -- Simple implementation of a math bounty contract
-module MathBounty3 where
+module MathBounty4 where
   
 import           Control.Monad             (void)
 import qualified Data.ByteString.Char8     as C
@@ -42,10 +42,17 @@ import           Text.Printf          (printf)
 --   validate that the square of the proposed value is the expected solution
 --   The validation function (Datum -> Redeemer -> ScriptContext -> Bool)
 
+data DatumMathBounty = DatumMathBounty
+  {   y       :: Integer
+  ,   address :: Address         
+  }
+
+PlutusTx.unstableMakeIsData ''DatumMathBounty
+
 -- Homework: check the script context so to validate that the outs are going to the Guessing Game
 {-# INLINABLE validateSolution #-}
-validateSolution :: Address -> Integer -> Integer -> ScriptContext -> Bool
-validateSolution address y x ctx = traceIfFalse "Wrong guess" $ x*x == y 
+validateSolution ::  DatumMathBounty -> Integer -> ScriptContext -> Bool
+validateSolution (DatumMathBounty y address) x ctx = traceIfFalse "Wrong guess" $ x*x == y 
                                  && traceIfFalse "Prize is not going to guessing contract" condition
   where
     condition :: Bool
@@ -55,15 +62,15 @@ validateSolution address y x ctx = traceIfFalse "Wrong guess" $ x*x == y
 data MathBounty
 instance Scripts.ValidatorTypes MathBounty where
     type instance RedeemerType MathBounty = Integer
-    type instance DatumType MathBounty = Integer
+    type instance DatumType MathBounty = DatumMathBounty
 
 -- | The script instance is the compiled validator (ready to go onto the chain)
-bountyInstance :: Address -> Scripts.TypedValidator MathBounty
-bountyInstance p = Scripts.mkTypedValidator @MathBounty
-  ($$(PlutusTx.compile [|| validateSolution ||]) `PlutusTx.applyCode` PlutusTx.liftCode p)
+bountyInstance :: Scripts.TypedValidator MathBounty
+bountyInstance = Scripts.mkTypedValidator @MathBounty
+  $$(PlutusTx.compile [|| validateSolution ||])
   $$(PlutusTx.compile [|| wrap ||])
     where
-      wrap = Scripts.wrapValidator @Integer @Integer
+      wrap = Scripts.wrapValidator @DatumMathBounty @Integer
 
 newtype HashedString = HashedString BuiltinByteString
   deriving newtype (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
@@ -96,8 +103,8 @@ isGoodGuess (HashedString actual) (ClearString guess') = actual == sha2_256 gues
 ------------------------------------------------------------
 
 -- | The address of the bounty (the hash of its validator script)
-bountyAddress :: Address -> Address
-bountyAddress address = Ledger.scriptAddress (Scripts.validatorScript (bountyInstance address))
+bountyAddress :: Address
+bountyAddress = Ledger.scriptAddress (Scripts.validatorScript bountyInstance)
 
 -- | The validator script of the game.
 gameValidator :: Validator
@@ -155,8 +162,8 @@ type MathBountySchema =
 -- | The "bounty" contract endpoint.
 bounty :: AsContractError e => BountyParams -> Contract () MathBountySchema e ()
 bounty (BountyParams t amt) = do
-    let tx   = Constraints.mustPayToTheScript t amt
-    ledgerTx <- submitTxConstraints (bountyInstance gameAddress) tx
+    let tx   = Constraints.mustPayToTheScript (DatumMathBounty t gameAddress) amt
+    ledgerTx <- submitTxConstraints bountyInstance tx
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
     logInfo @String $ printf "made a bounty of %d" $ getLovelace $ fromValue amt
 
@@ -164,13 +171,13 @@ bounty (BountyParams t amt) = do
 -- | The "solution" contract endpoint that tries to put funds in the wallet
 solutionWallet :: AsContractError e => SolutionParams -> Contract () MathBountySchema e ()
 solutionWallet (SolutionParams theProposal _) = do
-    unspentOutputs <- utxosAt (bountyAddress gameAddress)
+    unspentOutputs <- utxosAt bountyAddress
 
     -- 'collectFromScript' is a function of the wallet API. It creates a tx consuming
     -- all unspent transaction outputs at a script address and pays them to a
     -- public key address owned by this wallet. 
     let tx = collectFromScript unspentOutputs theProposal
-    ledgerTx <- submitTxConstraintsSpending (bountyInstance gameAddress) unspentOutputs tx
+    ledgerTx <- submitTxConstraintsSpending bountyInstance unspentOutputs tx
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
     logInfo @String $ printf "proposed solution is %d" theProposal
 
@@ -178,14 +185,14 @@ solutionWallet (SolutionParams theProposal _) = do
 -- | The "solution" contract endpoint.
 solution :: AsContractError e => SolutionParams -> Contract () MathBountySchema e ()
 solution (SolutionParams theProposal secret) = do
-    unspentOutputs <- utxosAt (bountyAddress gameAddress)
+    unspentOutputs <- utxosAt bountyAddress
 
     let amt = Prelude.foldl1 (<>) (map _ciTxOutValue  (Map.elems unspentOutputs))
 
     let tx =  Constraints.mustPayToOtherScript gameValidatorHash (Datum $ PlutusTx.toBuiltinData $ hashString secret) amt
            <> collectFromScript unspentOutputs theProposal
 
-    ledgerTx <- submitTxConstraintsSpending (bountyInstance gameAddress) unspentOutputs tx
+    ledgerTx <- submitTxConstraintsSpending bountyInstance unspentOutputs tx
 
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
     logInfo @String $ printf "proposed solution is %d" theProposal
