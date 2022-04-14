@@ -46,7 +46,7 @@ import           Text.Printf          (printf)
 {-# INLINABLE validateSolution #-}
 validateSolution :: Address -> Integer -> Integer -> ScriptContext -> Bool
 validateSolution address y x ctx = traceIfFalse "Wrong guess" $ x*x == y 
-                                 && traceIfFalse "Prize is not going to guessing contract" condition
+                                && traceIfFalse "There is no output going to the guessing contract" condition
   where
     condition :: Bool
     condition = any ((==) address . txOutAddress) $ txInfoOutputs $ scriptContextTxInfo ctx 

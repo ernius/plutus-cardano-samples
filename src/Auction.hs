@@ -14,6 +14,7 @@
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeOperators              #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 module Auction
     ( Auction (..)
@@ -27,6 +28,7 @@ module Auction
     , printSchemas
     , registeredKnownCurrencies
     , stage
+    , testAuction
     ) where
 
 import           Control.Monad        hiding (fmap)
@@ -49,6 +51,14 @@ import           PlutusTx.Prelude     hiding (unless)
 import qualified Prelude              as P
 import           Schema               (ToSchema)
 import           Text.Printf          (printf)
+--import Data.CharSet.Unicode (currencySymbol)
+import Data.Default               (Default (..))
+import Ledger.TimeSlot
+import qualified Plutus.Trace as Trace
+import Wallet.Emulator.Wallet
+import qualified Control.Monad.Freer.Extras as Extras
+import Control.Monad (forM_)
+
 
 minLovelace :: Integer
 minLovelace = 2000000
@@ -83,7 +93,6 @@ instance Eq Bid where
              (bBid    b == bBid    c)
 
 PlutusTx.unstableMakeIsData ''Bid
-
 
 data AuctionAction = MkBid Bid | Close
     deriving P.Show
@@ -361,3 +370,41 @@ myToken :: KnownCurrency
 myToken = KnownCurrency (ValidatorHash "f") "Token" (TokenName "T" :| [])
 
 mkKnownCurrencies ['myToken]
+
+emCfg :: Trace.EmulatorConfig
+emCfg = Trace.EmulatorConfig (Left $ Map.fromList [(knownWallet 1, v1),  (knownWallet 2, v2) ]) def def
+  where
+    v1 :: Value
+    v1 = Ada.lovelaceValueOf 1000_000_000 <> assetClassValue token 1
+    v2 :: Value
+    v2 = Ada.lovelaceValueOf 1000_000_000
+
+testAuction :: IO ()
+testAuction = Trace.runEmulatorTraceIO' def emCfg myTrace
+
+currSymbol :: CurrencySymbol
+currSymbol = currencySymbol "dcddcaa"
+
+tName :: TokenName
+tName = tokenName "T"
+
+token :: AssetClass
+token = AssetClass (currSymbol, tName)
+
+myTrace :: Trace.EmulatorTrace ()
+myTrace = do
+    let wallets = P.show $ P.map P.show knownWallets
+    Extras.logInfo $ "Wallets: " ++ wallets    
+    h1 <- Trace.activateContractWallet (knownWallet 1) $ endpoints 
+    h2 <- Trace.activateContractWallet (knownWallet 2) $ endpoints 
+    Trace.callEndpoint @"start" h1 $ StartParams
+        { spDeadline     = slotToBeginPOSIXTime def 10
+        , spMinBid       = 5_000_000
+        , spCurrency     = currSymbol
+        , spToken        = tName
+        }
+    void $ Trace.waitUntilSlot 5
+    Trace.callEndpoint @"bid" h2 (BidParams currSymbol tName 10_000_000)
+    s <- Trace.waitNSlots 10
+    Trace.callEndpoint @"close" h2 (CloseParams currSymbol tName)
+    void $ Trace.waitNSlots 2    

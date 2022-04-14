@@ -12,6 +12,7 @@
 {-# LANGUAGE DerivingStrategies  #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 -- Simple implementation of a math bounty contract
 module MathBounty4 where
@@ -21,7 +22,7 @@ import qualified Data.ByteString.Char8     as C
 import qualified Data.Map                  as Map
 import           Playground.Contract
 import qualified PlutusTx         as PlutusTx
-import           PlutusTx.Prelude hiding (pure, (<$>))
+import           PlutusTx.Prelude 
 
 import           Plutus.Contract
 import           Ledger                    
@@ -34,6 +35,7 @@ import qualified Prelude
 import Prelude (String)
 import           Text.Printf          (printf)
 
+
 ------------------------------------------------------------
 -- | On-Chain code
 ------------------------------------------------------------
@@ -44,7 +46,7 @@ import           Text.Printf          (printf)
 
 data DatumMathBounty = DatumMathBounty
   {   y       :: Integer
-  ,   address :: Address         
+  ,   address :: Address
   }
 
 PlutusTx.unstableMakeIsData ''DatumMathBounty
@@ -53,10 +55,25 @@ PlutusTx.unstableMakeIsData ''DatumMathBounty
 {-# INLINABLE validateSolution #-}
 validateSolution ::  DatumMathBounty -> Integer -> ScriptContext -> Bool
 validateSolution (DatumMathBounty y address) x ctx = traceIfFalse "Wrong guess" $ x*x == y 
-                                 && traceIfFalse "Prize is not going to guessing contract" condition
+                                 && traceIfFalse "Prize is not going to guessing contract" guessingTxOutExist
+                                 -- && traceIfFalse "The amount is not correct" correctAmount
   where
-    condition :: Bool
-    condition = any ((==) address . txOutAddress) $ txInfoOutputs $ scriptContextTxInfo ctx 
+    txOutGuessingGame :: Maybe TxOut
+    txOutGuessingGame = find ((==) address . txOutAddress) $ txInfoOutputs $ scriptContextTxInfo ctx
+
+    txInMathBounty :: Maybe TxOut
+    txInMathBounty = txInInfoResolved <$> (find ((==) (scriptHashAddress $ ownHash ctx) . txOutAddress . txInInfoResolved) $  txInfoInputs $ scriptContextTxInfo ctx)
+    
+    guessingTxOutExist :: Bool
+    guessingTxOutExist = isJust txOutGuessingGame
+
+    correctAmount :: Bool
+    correctAmount = case txOutGuessingGame of
+                      Nothing -> False
+                      Just v  -> case txInMathBounty of
+                                    Nothing -> False
+                                    Just v2 -> (fromValue $ txOutValue v2) == (fromValue $ txOutValue v)
+    
 
 -- | Datum and redeemer parameter types
 data MathBounty
@@ -157,6 +174,7 @@ type MathBountySchema =
             Endpoint "bounty" BountyParams
         .\/ Endpoint "solution" SolutionParams
         .\/ Endpoint "solutionWallet" SolutionParams
+        .\/ Endpoint "solutionPartial" SolutionParams        
         .\/ Endpoint "guess" GuessParams        
 
 -- | The "bounty" contract endpoint.
@@ -180,6 +198,25 @@ solutionWallet (SolutionParams theProposal _) = do
     ledgerTx <- submitTxConstraintsSpending bountyInstance unspentOutputs tx
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
     logInfo @String $ printf "proposed solution is %d" theProposal
+
+
+-- | The "solution" contract endpoint.
+solutionPartial :: AsContractError e => SolutionParams -> Contract () MathBountySchema e ()
+solutionPartial (SolutionParams theProposal secret) = do
+    unspentOutputs <- utxosAt bountyAddress
+
+    let amt = Prelude.foldl1 (<>) (map _ciTxOutValue  (Map.elems unspentOutputs))
+        fiveAda = fromValue $ lovelaceValueOf 50_000_000
+        minusFiveAda = toValue (fromValue amt - fiveAda)
+
+    let tx =  Constraints.mustPayToOtherScript gameValidatorHash (Datum $ PlutusTx.toBuiltinData $ hashString secret) (toValue fiveAda)
+          -- <> Constraints.mustPayToPubiic
+           <> collectFromScript unspentOutputs theProposal
+
+    ledgerTx <- submitTxConstraintsSpending bountyInstance unspentOutputs tx
+
+    void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
+    logInfo @String $ printf "proposed partial solution is %d" theProposal
 
 
 -- | The "solution" contract endpoint.
@@ -219,12 +256,13 @@ guess (GuessParams theGuess) = do
 
 -- | Math bounty endpoints.
 endpoints :: AsContractError e => Contract () MathBountySchema e ()
-endpoints = awaitPromise (bounty' `select` solution' `select` solutionWallet' `select` guess') >> endpoints
+endpoints = awaitPromise (bounty' `select` solution' `select` solutionWallet' `select` solutionPartial' `select` guess') >> endpoints
   where
     bounty' = endpoint @"bounty" bounty
     solution' = endpoint @"solution" solution
     guess' = endpoint @"guess" guess
     solutionWallet' = endpoint @"solutionWallet" solutionWallet
+    solutionPartial' = endpoint @"solutionWallet" solutionPartial    
 
 mkSchemaDefinitions ''MathBountySchema
 
