@@ -15,7 +15,7 @@
 {-# LANGUAGE LambdaCase #-}
 
 -- Simple implementation of a math bounty contract
-module MathBounty where
+module MathBountyClose where
 
 import qualified Data.Aeson as Aeson
 import           Control.Monad             (void)
