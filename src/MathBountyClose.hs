@@ -198,7 +198,7 @@ endpoints = awaitPromise (bounty' `select` solution' `select` close') >> endpoin
     solution' = endpoint @"solution" solution
     close' = endpoint @"close" $ const close
 
-mkSchemaDefinitions ''MathBountySchema
+--mkSchemaDefinitions ''MathBountySchema
 
 -- Contract w s e a
 -- EmulatorTrace a

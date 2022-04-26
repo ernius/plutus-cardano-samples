@@ -19,7 +19,7 @@ module MathBounty where
 import           Control.Monad             (void)
 import qualified Data.ByteString.Char8     as C
 import Data.Default               (Default (..))
-import           Playground.Contract
+
 import qualified PlutusTx         as PlutusTx
 import           PlutusTx.Prelude hiding (pure, (<$>))
 
@@ -141,7 +141,7 @@ endpoints = awaitPromise (bounty' `select` solution') >> endpoints
     bounty' = endpoint @"bounty" bounty
     solution' = endpoint @"solution" solution
 
-mkSchemaDefinitions ''MathBountySchema
+--mkSchemaDefinitions ''MathBountySchema
 
 -- Contract w s e a
 -- EmulatorTrace a

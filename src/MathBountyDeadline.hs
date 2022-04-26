@@ -156,5 +156,5 @@ endpoints = awaitPromise (bounty' `select` solution') >> endpoints
     bounty' = endpoint @"bounty" bounty
     solution' = endpoint @"solution" solution
 
-mkSchemaDefinitions ''MathBountySchema
+--mkSchemaDefinitions ''MathBountySchema
 

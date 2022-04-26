@@ -22,17 +22,16 @@ module Auction
     , AuctionSchema
     , start, bid, close
     , endpoints
-    , schemas
     , ensureKnownCurrencies
     , printJson
     , printSchemas
-    , registeredKnownCurrencies
     , stage
     , testAuction
     ) where
 
 import           Control.Monad        hiding (fmap)
 import           Data.Aeson           (ToJSON, FromJSON)
+import qualified Data.Aeson as Aeson
 import           Data.List.NonEmpty   (NonEmpty (..))
 import           Data.Map             as Map
 import           Data.Text            (pack, Text)
@@ -58,6 +57,9 @@ import qualified Plutus.Trace as Trace
 import Wallet.Emulator.Wallet
 import qualified Control.Monad.Freer.Extras as Extras
 import Control.Monad (forM_)
+import Wallet.Emulator.MultiAgent
+import Plutus.Trace.Emulator.Types
+import System.IO
 
 
 minLovelace :: Integer
@@ -136,7 +138,6 @@ mkAuctionValidator ad redeemer ctx =
                 Just Bid{..} ->
                     traceIfFalse "expected highest bidder to get token" (getsValue bBidder $ tokenValue <> Ada.lovelaceValueOf minLovelace) &&
                     traceIfFalse "expected seller to get highest bid" (getsValue (aSeller auction) $ Ada.lovelaceValueOf bBid)
-
   where
     info :: TxInfo
     info = scriptContextTxInfo ctx
@@ -206,7 +207,7 @@ mkAuctionValidator ad redeemer ctx =
 
     correctBidSlotRange :: Bool
     correctBidSlotRange = to (aDeadline auction) `contains` txInfoValidRange info
-
+                                      
     correctCloseSlotRange :: Bool
     correctCloseSlotRange = from (aDeadline auction) `contains` txInfoValidRange info
 
@@ -261,6 +262,7 @@ type AuctionSchema =
 
 start :: AsContractError e => StartParams -> Contract w s e ()
 start StartParams{..} = do
+    logInfo @P.String "---------------- Start Auction ----------------------------------------"  
     pkh <- ownPaymentPubKeyHash
     let a = Auction
                 { aSeller   = pkh
@@ -281,6 +283,7 @@ start StartParams{..} = do
 
 bid :: forall w s. BidParams -> Contract w s Text ()
 bid BidParams{..} = do
+    logInfo @P.String "---------------- Make a bid ----------------------------------------"
     (oref, o, d@AuctionDatum{..}) <- findAuction bpCurrency bpToken
     logInfo @P.String $ printf "found auction utxo with datum %s" (P.show d)
 
@@ -313,6 +316,7 @@ bid BidParams{..} = do
 
 close :: forall w s. CloseParams -> Contract w s Text ()
 close CloseParams{..} = do
+    logInfo @P.String "---------------- Close Auction ----------------------------------------"    
     (oref, o, d@AuctionDatum{..}) <- findAuction cpCurrency cpToken
     logInfo @P.String $ printf "found auction utxo with datum %s" (P.show d)
 
@@ -364,39 +368,70 @@ endpoints = awaitPromise (start' `select` bid' `select` close') >> endpoints
     bid'   = endpoint @"bid"   bid
     close' = endpoint @"close" close
 
-mkSchemaDefinitions ''AuctionSchema
+-- mkSchemaDefinitions ''AuctionSchema
 
 myToken :: KnownCurrency
 myToken = KnownCurrency (ValidatorHash "f") "Token" (TokenName "T" :| [])
 
-mkKnownCurrencies ['myToken]
+-- mkKnownCurrencies ['myToken]
+
+customShowEvent :: EmulatorEvent' -> Maybe P.String
+customShowEvent = \case
+  UserThreadEvent (UserLog msg)                                        -> Just $ "*** USER LOG: " <> msg <> "\n"
+  InstanceEvent (ContractInstanceLog (ContractLog (Aeson.String msg)) _ _)   -> Just $ "*** CONTRACT LOG: " <> P.show msg <> "\n"
+  InstanceEvent (ContractInstanceLog (StoppedWithError err)       _ _) -> Just $ "*** CONTRACT STOPPED WITH ERROR: " <> P.show err <> "\n"
+  ev                                                                   -> Nothing
+
+traceConfig :: Trace.TraceConfig
+traceConfig =
+  Trace.TraceConfig
+    customShowEvent
+    stdout
 
 emCfg :: Trace.EmulatorConfig
-emCfg = Trace.EmulatorConfig (Left $ Map.fromList [(knownWallet 1, v1),  (knownWallet 2, v2) ]) def def
+emCfg = Trace.EmulatorConfig (Left $ Map.fromList [(knownWallet 1, v1),  (knownWallet 2, v2), (knownWallet 3, v3) ]) def def
   where
     v1 :: Value
-    v1 = Ada.lovelaceValueOf 1000_000_000 <> assetClassValue token 1
+    v1 = Ada.lovelaceValueOf 100_000_000 <> assetClassValue token 1
     v2 :: Value
-    v2 = Ada.lovelaceValueOf 1000_000_000
+    v2 = Ada.lovelaceValueOf 100_000_000 <> assetClassValue token2 1
+    v3 :: Value
+    v3 = Ada.lovelaceValueOf 100_000_000 <> assetClassValue token3 1
+    
 
 testAuction :: IO ()
-testAuction = Trace.runEmulatorTraceIO' def emCfg myTrace
+testAuction = Trace.runEmulatorTraceIO' traceConfig emCfg myTrace
 
 currSymbol :: CurrencySymbol
 currSymbol = currencySymbol "dcddcaa"
 
 tName :: TokenName
-tName = tokenName "T"
+tName = tokenName "T1"
+
+tName2 :: TokenName
+tName2 = tokenName "T2"
+
+tName3 :: TokenName
+tName3 = tokenName "T3"
 
 token :: AssetClass
 token = AssetClass (currSymbol, tName)
+
+token2 :: AssetClass
+token2 = AssetClass (currSymbol, tName2)
+
+token3 :: AssetClass
+token3 = AssetClass (currSymbol, tName3)
 
 myTrace :: Trace.EmulatorTrace ()
 myTrace = do
     let wallets = P.show $ P.map P.show knownWallets
     Extras.logInfo $ "Wallets: " ++ wallets    
+
     h1 <- Trace.activateContractWallet (knownWallet 1) $ endpoints 
-    h2 <- Trace.activateContractWallet (knownWallet 2) $ endpoints 
+    h2 <- Trace.activateContractWallet (knownWallet 2) $ endpoints
+    h3 <- Trace.activateContractWallet (knownWallet 3) $ endpoints
+    
     Trace.callEndpoint @"start" h1 $ StartParams
         { spDeadline     = slotToBeginPOSIXTime def 10
         , spMinBid       = 5_000_000
@@ -404,7 +439,9 @@ myTrace = do
         , spToken        = tName
         }
     void $ Trace.waitUntilSlot 5
-    Trace.callEndpoint @"bid" h2 (BidParams currSymbol tName 10_000_000)
+    Trace.callEndpoint @"bid" h2 (BidParams currSymbol tName 20_000_000)
+    s <- Trace.waitNSlots 1
+    Trace.callEndpoint @"bid" h3 (BidParams currSymbol tName 10_000_000)    
     s <- Trace.waitNSlots 10
     Trace.callEndpoint @"close" h2 (CloseParams currSymbol tName)
     void $ Trace.waitNSlots 2    

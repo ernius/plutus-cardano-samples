@@ -132,6 +132,6 @@ endpoints = awaitPromise (give' `select` grab') >> endpoints
     give' = endpoint @"give" give
     grab' = endpoint @"grab" $ const grab
 
-mkSchemaDefinitions ''VestingSchema
+--mkSchemaDefinitions ''VestingSchema
 
-mkKnownCurrencies []
+--mkKnownCurrencies []

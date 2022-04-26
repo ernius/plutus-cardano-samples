@@ -202,6 +202,6 @@ endpoints = awaitPromise (lock' `select` guess') >> endpoints
     lock' = endpoint @"lock" lock
     guess' = endpoint @"guess" guess
 
-mkSchemaDefinitions ''GameSchema
+--mkSchemaDefinitions ''GameSchema
 
-$(mkKnownCurrencies [])
+-- $(mkKnownCurrencies [])

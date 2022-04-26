@@ -192,5 +192,5 @@ endpoints = awaitPromise (bounty' `select` solution' `select` unlock') >> endpoi
     solution' = endpoint @"solveAndLock" solution
     unlock' = endpoint @"unlock" unlock
     
-mkSchemaDefinitions ''MathBountyWithLockSchema
+--mkSchemaDefinitions ''MathBountyWithLockSchema
 
