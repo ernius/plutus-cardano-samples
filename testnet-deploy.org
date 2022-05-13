@@ -1,0 +1,295 @@
+#+TITLE:     Mathbounty script deploy in the Testnet
+#+AUTHOR:    Ernesto Copello
+#+EMAIL:     ernesto@emurgo.io
+#+LANGUAGE: en
+# #+SETUPFILE: https://fniessen.github.io/org-html-themes/org/theme-readtheorg.setup
+
+* Compile math bounty contract and generate its address
+  
+** compile the plutus smart contract, generates datum and redeemer json files
+
+#+BEGIN_SRC sh :shebang :results verbatim :exports both :eval no-export
+  cabal run mathbounty-serialize
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Resolving dependencies...
+Build profile: -w ghc-8.10.4.20210212 -O1
+In order, the following will be built (use -v for more details):
+ - plutus-cardano-samples-0.1.0.0 (exe:mathbounty-serialize) (file app/mathbounty-serialize.hs changed)
+Preprocessing executable 'mathbounty-serialize' for plutus-cardano-samples-0.1.0.0..
+Building executable 'mathbounty-serialize' for plutus-cardano-samples-0.1.0.0..
+[1 of 1] Compiling Main             ( app/mathbounty-serialize.hs, /home/ernius/Documents/emurgo/emurgo-academy/plutus-cardano-samples/dist-newstyle/build/x86_64-linux/ghc-8.10.4.20210212/plutus-cardano-samples-0.1.0.0/x/mathbounty-serialize/build/mathbounty-serialize/mathbounty-serialize-tmp/Main.o )
+Linking /home/ernius/Documents/emurgo/emurgo-academy/plutus-cardano-samples/dist-newstyle/build/x86_64-linux/ghc-8.10.4.20210212/plutus-cardano-samples-0.1.0.0/x/mathbounty-serialize/build/mathbounty-serialize/mathbounty-serialize ...
+"Log output"
+[]
+"Ex Budget"
+ExBudget {exBudgetCPU = ExCPU 6996755, exBudgetMemory = ExMemory 23600}
+"Ex Units"
+Just (WrapExUnits {unWrapExUnits = ExUnits' {exUnitsMem' = 23600, exUnitsSteps' = 6996755}})
+#+end_example
+
+
+
+** generate smart contract address, the hash of its code
+
+#+BEGIN_SRC sh :shebang :results verbatim :exports both :eval no-export
+  export LD_LIBRARY_PATH=
+  cardano-cli address build --payment-script-file mathbounty.plutus --testnet-magic 1097911063 --out-file mathbounty.addr
+  echo "Contract address:"   
+  cat mathbounty.addr
+#+END_SRC
+
+ #+RESULTS:
+ : Contract address:
+ : addr_test1wqmthyet6pflmh50as349e2s58knkygkjwtdudghkrjgmrcn3rkav
+
+* Start testnet
+  
+ 
+** check testnet is up
+
+#+BEGIN_SRC sh :shebang :results verbatim :exports both :eval no-export
+  #export CARDANO_NODE_SOCKET_PATH=./plutus-scripts/db/node.socket
+  export LD_LIBRARY_PATH=  
+  export CARDANO_NODE_SOCKET_PATH=../../cardano/db/node.socket
+  export MAGIC="1097911063"  
+  cardano-cli query tip --testnet-magic ${MAGIC}
+#+END_SRC
+
+#+RESULTS:
+: {
+:     "era": "Alonzo",
+:     "syncProgress": "100.00",
+:     "hash": "c1072f187de1797768f745c2e06c46d5e9beb6b33a849a42afd2e2b5296be63a",
+:     "epoch": 202,
+:     "slot": 57299339,
+:     "block": 3525824
+: }
+
+
+* Build the transaction to lock 1.68 ADA and 10 USDT, sign and submit it
+
+** Transaction id [[https://explorer.cardano-testnet.iohkdev.io/en/transaction?id=c11f74040e323f968e3ba47bf1656575d59f448e0683723320125807f86bef2c][c11f74040e323f968e3ba47bf1656575d59f448e0683723320125807f86bef2c]]  
+
+#+BEGIN_SRC dot :file produce-swap.png :cmdline -Kdot -Tpng :exports results :eval no-export
+  digraph {
+     rankdir=LR;
+     splines=true;
+     node [shape=box];
+  
+  utx0 [shape=record, label="UTXO_0|addr:payment|value:10 ADA lovelace+10 USDT" ]
+  tx0 [ label="Tx0\n" ]
+  swap [shape=record, label="UTXO_SWAP_0|addr:swap|value:1.689618 ADA+10 USDT|datum hash: redeemerhash.txt" ]
+  utx1 [shape=record, label="UTXO_1|addr:payment|value:8.140217 ADA" ]       
+  
+  utx0 -> tx0 -> {swap, utx1}  
+  }
+#+END_SRC
+
+#+RESULTS:
+[[file:produce-swap.png]]
+
+
+The fees paid by *payment1* wallet to deploy swap contract are 10-1.689618-8.140217=0.179783 ADA.
+
+#+BEGIN_SRC sh :shebang :results verbatim :eval no-export :exports both
+  export CARDANO_NODE_SOCKET_PATH=$HOME/Documents/emurgo/cardano/db/node.socket
+  export MAGIC="1097911063"
+  export UTXO_0=ec188f5e43ca8e518e6164e2a69664f4be41b1f85ed7afb8cd07ff635fe3de21#1
+  cardano-cli transaction build \
+   --alonzo-era \
+   --tx-in ${UTXO_0} \
+   --tx-out $(cat swap.addr)+1689618+"10 fe6037759347be39a6e2661cc7dfe172446f7e06e357a30b4217fd26.USDT" \
+   --tx-out-datum-hash $(cat redeemerhash.txt) \
+   --change-address $(cat ./plutus-scripts/wallets/payment.addr) \
+   --testnet-magic ${MAGIC} \
+   --out-file tx.raw
+  # Sign tx.raw
+  cardano-cli transaction sign \
+	      --tx-body-file tx.raw \
+	      --signing-key-file ./plutus-scripts/wallets/payment.skey \
+	      --out-file tx.sign
+  # Send tx.sign
+  cardano-cli transaction submit \
+	      --testnet-magic ${MAGIC} \
+	      --tx-file tx.sign
+#+END_SRC
+
+#+RESULTS:
+: [TxIn "ec188f5e43ca8e518e6164e2a69664f4be41b1f85ed7afb8cd07ff635fe3de21" (TxIx 1)]
+: [TxOutAnyEra (AddressShelley (ShelleyAddress Testnet (ScriptHashObj (ScriptHash "28c5399af5ec727ac8b7e8370680a929971502d6aa3e5a3bbb765daa")) StakeRefNull)) (valueFromList [(AdaAssetId,1689618),(AssetId "fe6037759347be39a6e2661cc7dfe172446f7e06e357a30b4217fd26" "USDT",10)]) (Just "923918e403bf43c34b4ef6b48eb2ee04babed17320d8d1b9ff9ad086e86f44ec")]
+: UTxO (fromList [(TxIn "ec188f5e43ca8e518e6164e2a69664f4be41b1f85ed7afb8cd07ff635fe3de21" (TxIx 1),TxOut (AddressInEra (ShelleyAddressInEra ShelleyBasedEraAlonzo) (ShelleyAddress Testnet (KeyHashObj (KeyHash "e9ba5a9581e079fff7406d3f8cb7c6d4bc609b33852a2f4d75c7e7c8")) (StakeRefBase (KeyHashObj (KeyHash "cd5c45462511a3b7c93ea956566f0cc3d73aa9544687e511614235cc"))))) (TxOutValue MultiAssetInAlonzoEra (valueFromList [(AdaAssetId,10000000),(AssetId "fe6037759347be39a6e2661cc7dfe172446f7e06e357a30b4217fd26" "USDT",10)])) TxOutDatumHashNone)])
+: ShelleyTxBody ShelleyBasedEraMary (TxBodyConstr TxBodyRaw {_inputs = fromList [TxInCompact (TxId {_unTxId = SafeHash "ec188f5e43ca8e518e6164e2a69664f4be41b1f85ed7afb8cd07ff635fe3de21"}) 1], _collateral = fromList [], _outputs = StrictSeq {fromStrict = fromList [(Addr Testnet (KeyHashObj (KeyHash "e9ba5a9581e079fff7406d3f8cb7c6d4bc609b33852a2f4d75c7e7c8")) (StakeRefBase (KeyHashObj (KeyHash "cd5c45462511a3b7c93ea956566f0cc3d73aa9544687e511614235cc"))),Value 8140217 (fromList []),SNothing),(Addr Testnet (ScriptHashObj (ScriptHash "28c5399af5ec727ac8b7e8370680a929971502d6aa3e5a3bbb765daa")) StakeRefNull,Value 1689618 (fromList [(PolicyID {policyID = ScriptHash "fe6037759347be39a6e2661cc7dfe172446f7e06e357a30b4217fd26"},fromList [("USDT",10)])]),SJust (SafeHash "923918e403bf43c34b4ef6b48eb2ee04babed17320d8d1b9ff9ad086e86f44ec"))]}, _certs = StrictSeq {fromStrict = fromList []}, _wdrls = Wdrl {unWdrl = fromList []}, _txfee = Coin 170165, _vldt = ValidityInterval {invalidBefore = SNothing, invalidHereafter = SNothing}, _update = SNothing, _reqSignerHashes = fromList [], _mint = Value 0 (fromList []), _scriptIntegrityHash = SNothing, _adHash = SNothing, _txnetworkid = SNothing}) [] (TxBodyScriptData ScriptDataInAlonzoEra TxDatsRaw (fromList []) RedeemersRaw (fromList [])) Nothing TxScriptValidityNone
+: Transaction successfully submitted.
+
+
+* payment consumer contract wallet
+
+#+BEGIN_SRC sh :shebang :results table :eval no-export
+  export LD_LIBRARY_PATH=  
+  export CARDANO_NODE_SOCKET_PATH=$HOME/Documents/emurgo/cardano/db/node.socket
+  
+  export MAGIC="1097911063"
+  cardano-cli query utxo      \
+	      --testnet-magic ${MAGIC} \
+	      --address $(cat wallets/payment.addr)
+ #+END_SRC
+
+ #+RESULTS:
+
+
+tx consuming the bounty
+ | 6ef1c5ab28007d6a898e87d4eb35ba9da5bb7019a48a6a0a1602644f0b6aeeca                       |    0 | 12322786 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | 6ef1c5ab28007d6a898e87d4eb35ba9da5bb7019a48a6a0a1602644f0b6aeeca                       |    1 |  3000000 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+
+ | TxHash                                                                                 | TxIx |   Amount |          |   |                |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | -------------------------------------------------------------------------------------- |      |          |          |   |                |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | 02e9fd1204bc96a5af25e7fda026aae390dd5f36c8dec4e5be900df76643203e                       |    0 | 12648802 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | 2d3c1e29f6bb0365d4a88f089eef7fefc0a0637d762c01e421423c734a329aeb                       |    0 |  8140217 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | 3074563d4788f651095dd375f83bcfb124f435707af74b5f469f09be13c07485                       |    1 |  2000000 | lovelace | + | 1              | dc69c4c4c2f7e7335d18a41a8312fd538270f9d3b679a1eaee9e8155.756b7261696e6530 | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |
+ | 3a2ad9952f14fba54f7a17d741f86918354c9afb8079f2282e09ab102176a735                       |    1 | 10000000 | lovelace | + | 10             | fe6037759347be39a6e2661cc7dfe172446f7e06e357a30b4217fd26.45555254         | + | 10             | fe6037759347be39a6e2661cc7dfe172446f7e06e357a30b4217fd26.55534454         | + | TxOutDatumNone |                                                                           |   |                |
+ | 4f00178d669225219f894d16d236490b0c3fc9de671edace470fdc60a3ff5133                       |    0 | 34599762 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | 536d5a24dfd6eac17997c56cdea498e8f7adb99210e3b989886c5722e169f74a                       |    0 |  8140217 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | 585ad459a48d96db974e93c62e4eea9e9d94fac6c9635c7f03ad2c93abb21d78                       |    1 |  1689618 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | 5a7fdb00c283034c6fcc14fd8a45d54d99b188ade2c068b16a82e46114998227                       |    0 |  8140217 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | 5b7aa63a2b6d3bcc700b0ac844b8ef5c0e8dc0540d83a00cbe3a222d1ba6e04e                       |    0 |  1829835 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | 66ee6551cf05b77f3fe709fd85b90c2c08c791dfab8ef26a3a43a883188c6c72                       |    0 |  1829659 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | 6aad833b452ed8c027b306f17aad8ef1bd935a0f02a19668fa05dd3e0bc2f5ea                       |    0 |  7739503 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | 6aad833b452ed8c027b306f17aad8ef1bd935a0f02a19668fa05dd3e0bc2f5ea                       |    2 |  2000000 | lovelace | + | 1              | 2ead3bb369fd6a33b4d014d3a719505effeadb221b3e1b7ba6aa519c.756b7261696e6530 | + | 1              | 5ab9191515b22f5b5b9e73c4d5ab104dc80c4411efe66b681684ba70.45726e697573     | + |              1 | f2e81112ca18844cf65b0070af1cc0de250038a69a8b42d88d20ceb4.756b7261696e6530 | + | TxOutDatumNone |
+ | 86062b7f0848d6748129f7ac7602ee445096a46d251794847281083b5c8d9d56                       |    1 |  1000000 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | 896152fe05480ac0eea64b9c7f7fce7600e6a0ca02ccb2ddc7009310662a071f                       |    0 |  9280692 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | 896152fe05480ac0eea64b9c7f7fce7600e6a0ca02ccb2ddc7009310662a071f                       |    2 |  2000000 | lovelace | + | 1              | a6403e58847529f8ccdf7879efb89a81304c7abe6c016891cb84681c.756b7261696e6530 | + | 1              | e762d35a0383f1d0abb32e6ceca1fcdf7869b9dd4a00f4e459d1897b.756b7261696e6530 | + |             20 | fe6037759347be39a6e2661cc7dfe172446f7e06e357a30b4217fd26.45555254         | + | TxOutDatumNone |
+ | 89cb47e8eb659b20f397492a3e0dafc8e86170333898903c79484d8a844e2d3c                       |    0 |  8140217 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | 8dd217c552612841d2f00c0483b35508d01801f0dea6fdc68fd1cd93c587c07b                       |    0 |  8140217 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | a3ca2a32c2145b54709a7c4ee664beeb06ed5f1da0635fa1b1e71b7b56bd2b63                       |    1 |  1400000 | lovelace | + | 1              | 46d0872853dcf822c2458e1899b0d17a3e965c179034764ec13e6955.4e465431         | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |
+ | a6fc962401bff54d6bf5b964e9ddcfb57ce6002c7c37c1cce0a5f81bcf3048e0                       |    1 |  1689618 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | b329037fd037a117dceb682a8ea2595f4b0bee0c15955fb9e1b992888c8a7df8                       |    0 |  8140217 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | b63eec91562fca0a95e04987e4242ed144331399359df99898d9a574ba5fcccb                       |    1 |  1400000 | lovelace | + | 1              | 5ae557dbb1af653bcb6d4685f202a5231bc4c8d6377e0e4ad120fd81.4e465431         | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |
+ | bbec0d844d34412406f3210b523bb5eacb1c0db466d2575a2576e009ce6f3629                       |    0 |  8140217 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | c11f74040e323f968e3ba47bf1656575d59f448e0683723320125807f86bef2c                       |    0 |  8140217 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | d035ba7ec5bb6aa95e75ddee2e8b51c8c42a0b546df09f55c202a29341026d04                       |    0 |  1829659 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | d25af163e02fc69b12205fc0b28bc57f72215a59335b3e18cb431e870cfbcd7c                       |    1 |  1689618 | lovelace | + | 10             | fe6037759347be39a6e2661cc7dfe172446f7e06e357a30b4217fd26.45555254         | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |
+ | d4622e9664c8321cb05f440c4afdd8de9bade61aad9e53d5724362731cbc8561                       |    0 |  8140217 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | d51ab5f48315878468bb7c9d92dc76e7e054fbe40e852911f150fb07f3d08cc6                       |    0 |  5741367 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | da23abb3a9b1f9e902840ffd8f5bf82d86c38e522db7937434912302fff88cdf                       |    0 |  6552936 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | da23abb3a9b1f9e902840ffd8f5bf82d86c38e522db7937434912302fff88cdf                       |    1 |  1400000 | lovelace | + | 1              | e2afcf5711fe8e119d45c6c2efe17c68a5140dfb3fc9f0ab3558e158.3465343635343331 | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |
+ | daf8a2e3dead012f74c963c87fa18081dfb4c8323820c45286ef4de77d7a270c                       |    0 | 76782422 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | daf8a2e3dead012f74c963c87fa18081dfb4c8323820c45286ef4de77d7a270c                       |    1 |  1400000 | lovelace | + | 1              | 7c2f9e0a55f5bf56992e16bd9befb0a801eee3780e94d7fc961becc8.4e465431         | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |
+ | dfccee39f716b5673901b42aa29a367ae4a3472e8d6d4c8ad54e72d8a87adb4c                       |    0 |  4908056 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | e117255765ed024fa4117beeecec816618756c1cb0e2bcac86edd4b7cb2afd48                       |    0 |  5538591 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | e117255765ed024fa4117beeecec816618756c1cb0e2bcac86edd4b7cb2afd48                       |    1 |  2000000 | lovelace | + | 1              | e3eeafa6b25b38c5db33c45570565dfcb6f3dd2cb37caa1eb5925899.756b7261696e6530 | + | 20             | fe6037759347be39a6e2661cc7dfe172446f7e06e357a30b4217fd26.45555254         | + | TxOutDatumNone |                                                                           |   |                |
+ | e8856590a82173063004cd0b3ca7d2e16f10758672b15f1c19494c5b6910ca2e                       |    0 | 66000000 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | ee4166708364f14bdbee012678def6ad3f7ccbfdef0949912e10972ac89b3794                       |    0 |  8140217 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | ee8e8f28a7ae0c97b6f66f5c51d15c7b9d4b4da8d4569b4d8434e1d0b1c52726                       |    0 |  2032338 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+ | faba7c9ce76bee2e934ad244ad3f8b0e7c8ad59329a31d8ec39164a0935f846e                       |    1 |  1689618 | lovelace | + | 10             | fe6037759347be39a6e2661cc7dfe172446f7e06e357a30b4217fd26.45555254         | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |
+ | fbdb7ae1635a7ba9a03ab237cb7bcfe61bea2e5e800fa4f4d071f1c9f35cb21c                       |    0 |  8140217 | lovelace | + | TxOutDatumNone |                                                                           |   |                |                                                                           |   |                |                                                                           |   |                |
+
+
+* Quering the swap contract address [[https://explorer.cardano-testnet.iohkdev.io/en/transaction?id=c11f74040e323f968e3ba47bf1656575d59f448e0683723320125807f86bef2c][(testnet explorer)]]
+
+#+BEGIN_SRC sh :shebang :results json :exports both
+  cat ./mathbounty.addr
+#+END_SRC
+
+#+RESULTS:
+: addr_test1wqmthyet6pflmh50as349e2s58knkygkjwtdudghkrjgmrcn3rkav
+  
+#+BEGIN_SRC sh :shebang :results json :exports both
+  export LD_LIBRARY_PATH=    
+  export CARDANO_NODE_SOCKET_PATH=$HOME/Documents/emurgo/cardano/db/node.socket
+  export MAGIC="1097911063"
+  cardano-cli query utxo --testnet-magic ${MAGIC} --address $(cat mathbounty.addr)
+#+END_SRC
+
+#+RESULTS:
+| TxHash                                                                                 | TxIx |  Amount |          |   |                |                       |                                                                  |
+| -------------------------------------------------------------------------------------- |      |         |          |   |                |                       |                                                                  |
+| 1bceb0b3d57cbfc55fc200a9f9a6e553fafe1446ee931ffadf733f1b8243c676                       |    0 | 3000000 | lovelace | + | TxOutDatumHash | ScriptDataInAlonzoEra | 80be0d8f11f2df126a00eba07026d43ceb1b83ed8a038a305e3b1af707f0bae7 |
+| 80c67645bc3c1ee105a102f99253a0f68fd1ea33bfbb9c12f4323db6692550eb                       |    0 | 3000000 | lovelace | + | TxOutDatumHash | ScriptDataInAlonzoEra | 80be0d8f11f2df126a00eba07026d43ceb1b83ed8a038a305e3b1af707f0bae7 |
+
+
+| TxHash                                                                                 | TxIx |  Amount |          |   |                |                       |                                                                  |
+| -------------------------------------------------------------------------------------- |      |         |          |   |                |                       |                                                                  |
+| 14cb2dbededf34a1d78416dc769f0b8595c120609655ad4329e41f02baf2d642                       |    0 | 3000000 | lovelace | + | TxOutDatumHash | ScriptDataInAlonzoEra | 80be0d8f11f2df126a00eba07026d43ceb1b83ed8a038a305e3b1af707f0bae7 |
+| 1bceb0b3d57cbfc55fc200a9f9a6e553fafe1446ee931ffadf733f1b8243c676                       |    0 | 3000000 | lovelace | + | TxOutDatumHash | ScriptDataInAlonzoEra | 80be0d8f11f2df126a00eba07026d43ceb1b83ed8a038a305e3b1af707f0bae7 |
+| 80c67645bc3c1ee105a102f99253a0f68fd1ea33bfbb9c12f4323db6692550eb                       |    0 | 3000000 | lovelace | + | TxOutDatumHash | ScriptDataInAlonzoEra | 80be0d8f11f2df126a00eba07026d43ceb1b83ed8a038a305e3b1af707f0bae7 |
+
+
+* Consume previous mathbounty contract
+
+** Txid
+
+-  [[https://docs.cardano.org/plutus/collateral-mechanism][Collateral mechanism:]] is used to guarantee that nodes are compensated for their work in case phase-2 validation fails. Thus, collateral is the monetary guarantee a user gives to assure that the contract has been carefully designed and thoroughly tested. Collateral amount is specified at the time of constructing the transaction. Not directly, but by adding collateral inputs to the transaction. The total balance in the UTXOs corresponding to these specially marked inputs is the transaction’s collateral amount. If the user fulfills the conditions of the guarantee, and a contract gets executed, the collateral is safe.
+
+- *Change addresses:* where remaining Ada (not spent by script) goes
+
+#+BEGIN_SRC dot :file consume-mathbounty.png :cmdline -Kdot -Tpng :exports results :eval no-export
+  digraph {
+     rankdir=LR;
+     splines=true;
+     node [shape=box];
+  
+  utx0 [shape=record, label="UTXO_MATHBOUNTY|addr:math bounty address|value:3000000|datum hash: redeemerhash.txt" ]
+  
+  payment0 [shape=record, label="UTXO_SOLUTION|addr:payment|value:tx fee" ]
+  tx1 [ label="Tx1\n" ]
+  
+  payment1 [shape=record, label="UTXO_2|addr:payment|value:3000000" ]
+  
+  utx0 -> tx1	   
+  payment0 -> tx1 -> {payment1}
+  
+  }
+#+END_SRC
+
+#+RESULTS:
+[[file:consume-mathbounty.png]]
+
+
+The fees paid by *payment* wallet to consume math bounty contract 
+
+#+BEGIN_SRC sh :shebang :results verbatim :eval no-export :exports both
+  export LD_LIBRARY_PATH=    
+  export CARDANO_NODE_SOCKET_PATH=$HOME/Documents/emurgo/cardano/db/node.socket
+  export MAGIC="1097911063"
+  export UTXO_MATHBOUNTY_0=14cb2dbededf34a1d78416dc769f0b8595c120609655ad4329e41f02baf2d642#0
+  export UTXO_SOLUTION=02e9fd1204bc96a5af25e7fda026aae390dd5f36c8dec4e5be900df76643203e#0
+  export PAYMENT_UTXO_FAIL=02e9fd1204bc96a5af25e7fda026aae390dd5f36c8dec4e5be900df76643203e#0
+  cardano-cli transaction build \
+	      --alonzo-era \
+	      --protocol-params-file ./testnet/protocol.json \
+	      --tx-in ${UTXO_MATHBOUNTY_0} \
+	      --tx-in-script-file mathbounty.plutus \
+	      --tx-in-datum-file datum.json \
+	      --tx-in-redeemer-file redeemer.json \
+	      --tx-in ${UTXO_SOLUTION} \
+	      --tx-in-collateral ${PAYMENT_UTXO_FAIL} \
+	      --tx-out $(cat wallets/payment.addr)+3000000 \
+	      --change-address $(cat wallets/payment.addr) \
+	      --testnet-magic ${MAGIC} \
+	      --out-file tx-use.raw
+  # Sign tx-use.raw
+  cardano-cli transaction sign \
+	      --tx-body-file tx-use.raw  \
+	      --signing-key-file wallets/payment.skey \
+	      --out-file tx-use.sign
+  # Submit tx-use.sign
+  cardano-cli transaction submit \
+	      --testnet-magic ${MAGIC} \
+	      --tx-file tx-use.sign
+#+END_SRC
+
+#+RESULTS:
+: Estimated transaction fee: Lovelace 326016
+: Transaction successfully submitted.
+
+
+
+
+
+
+
+
+

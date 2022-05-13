@@ -11,6 +11,7 @@ License-files:       LICENSE
 library
   hs-source-dirs:      src
   exposed-modules:     MathBounty
+                     , MathBountyPAB
                      , MathBountyFilter
                      , MathBounty2
                      , MathBounty3
@@ -21,6 +22,15 @@ library
                      , MathBountyMultiStage
                      , Vesting
                      , Auction
+                     , Policies.Free
+                     , Policies.Signed
+                     , Policies.Nft
+                     --, Oracle.Funds
+                     , Oracle.Swap
+                     , Oracle.Core
+                     , Oracle.TestOracle
+                     , Oracle.Test
+                     , Utils
   build-depends:       aeson
                      , base ^>=4.14.1.0
                      , bytestring
@@ -30,10 +40,18 @@ library
                      , playground-common
                      , plutus-contract
                      , plutus-ledger
+                     , cardano-crypto-class                     
+                     , cardano-ledger-core
+                     , cardano-ledger-shelley
+                     , cardano-wallet-core
                      , plutus-ledger-api
                      , plutus-ledger-constraints
+                     , plutus-use-cases
                      , plutus-tx-plugin
                      , plutus-tx
+                     , plutus-pab
+                     , openapi3
+                     , prettyprinter
                      , serialise
                      , text
                      , lens
@@ -42,3 +60,39 @@ library
                      , charset
   default-language:    Haskell2010
   ghc-options:         -Wall -fobject-code -fno-ignore-interface-pragmas -fno-omit-interface-pragmas -fno-strictness -fno-spec-constr -fno-specialise  -fplugin-opt PlutusTx.Plugin:defer-errors
+
+
+executable mathbounty-pab
+  main-is: mathbounty-pab.hs
+  hs-source-dirs:      app
+  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
+  build-depends:       aeson
+                     , base ^>= 4.14.1.0
+                     , data-default
+                     , freer-extras
+                     , freer-simple
+                     , plutus-contract
+                     , plutus-ledger
+                     , plutus-ledger-constraints
+                     , plutus-pab
+                     , plutus-cardano-samples
+                     , plutus-use-cases
+                     , text
+
+executable mathbounty-serialize
+  build-depends: base >= 4.14.1.0
+  hs-source-dirs:       app
+  main-is:              mathbounty-serialize.hs
+  default-extensions:   NoImplicitPrelude
+                        OverloadedStrings
+  ghc-options:          -threaded -rtsopts "-with-rtsopts=-T"
+  build-depends:        cardano-api
+                      , cardano-ledger-alonzo
+                      , plutus-ledger
+                      , plutus-ledger-api
+                      , bytestring
+                      , serialise
+                      , plutus-cardano-samples
+                      , plutus-tx
+                      , aeson
+                       

@@ -1,0 +1,10 @@
+cradle:
+  cabal:
+    - path: "src"
+      component: "lib:plutus-cardano-samples"
+
+    - path: "app/mathbounty-pab.hs"
+      component: "plutus-cardano-samples:exe:mathbounty-pab"
+
+    - path: "app/mathbounty-serialize.hs"
+      component: "plutus-cardano-samples:exe:mathbounty-serialize"

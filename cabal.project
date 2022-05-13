@@ -84,7 +84,7 @@ package set-algebra
 source-repository-package
   type: git
   location: https://github.com/input-output-hk/plutus-apps.git
-  tag:13836ecf59649ca522471417b07fb095556eb981
+  tag:6e3f6a59d64f6d4cd9d38bf263972adaf4f7b244
   subdir:
     freer-extras
     playground-common
@@ -281,3 +281,4 @@ source-repository-package
   type: git
   location: https://github.com/input-output-hk/Win32-network
   tag: 3825d3abf75f83f406c1f7161883c438dac7277d
+  

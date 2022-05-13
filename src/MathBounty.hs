@@ -19,7 +19,10 @@ module MathBounty where
 import           Control.Monad             (void)
 import qualified Data.ByteString.Char8     as C
 import Data.Default               (Default (..))
+import Data.Void
+import Data.Map as Map
 
+import           Codec.Serialise
 import qualified PlutusTx         as PlutusTx
 import           PlutusTx.Prelude hiding (pure, (<$>))
 
@@ -37,14 +40,15 @@ import Ledger.TimeSlot
 import qualified Plutus.Trace as Trace
 import Wallet.Emulator.Wallet
 import qualified Control.Monad.Freer.Extras as Extras
-
+import qualified Data.OpenApi.Schema as OApi
+import PlutusTx.IsData.Class (toBuiltinData)
 ------------------------------------------------------------
 -- | On-Chain code
 ------------------------------------------------------------
 
 data MathBountyDatum = MathBountyDatum {
      mTarget   :: Integer
-   , mDeadline :: POSIXTime
+--   , mDeadline :: POSIXTime
  }
 
 PlutusTx.unstableMakeIsData ''MathBountyDatum
@@ -54,12 +58,12 @@ PlutusTx.unstableMakeIsData ''MathBountyDatum
 --   The validation function (Datum -> Redeemer -> ScriptContext -> Bool)
 {-# INLINABLE validateSolution #-}
 validateSolution :: MathBountyDatum -> Integer -> ScriptContext -> Bool
-validateSolution (MathBountyDatum y d) x ctx =
+validateSolution (MathBountyDatum y) x ctx =
   traceIfFalse "Wrong guess" $ x*x == y
-  && traceIfFalse "Deadline not reached" deadlineReached
-  where
-    deadlineReached :: Bool
-    deadlineReached = (from d) `contains` (txInfoValidRange $ scriptContextTxInfo ctx)
+  -- && traceIfFalse "Deadline not reached" deadlineReached
+  -- where
+  --   deadlineReached :: Bool
+  --   deadlineReached = (from d) `contains` (txInfoValidRange $ scriptContextTxInfo ctx)
 
 --                                 validrange
 --                               ( ..........         )
@@ -84,25 +88,34 @@ bountyInstance = Scripts.mkTypedValidator @MathBounty
 -- | Off-Chain code
 ------------------------------------------------------------
 
+validator :: Validator
+validator = Scripts.validatorScript bountyInstance
+
+bountyScript :: Script
+bountyScript = unValidatorScript validator
+
 -- | The address of the bounty (the hash of its validator script)
 bountyAddress :: Address
-bountyAddress = Ledger.scriptAddress (Scripts.validatorScript bountyInstance)
+bountyAddress = Ledger.scriptAddress validator
 
 -- | Parameters for the "bounty" endpoint
 data BountyParams = BountyParams
     { bTarget :: Integer
-    , bAmount :: Value
-    , bDeadline :: POSIXTime
+    , bAmount :: Integer
+--    , bDeadline :: POSIXTime
     }
     deriving stock (Prelude.Eq, Prelude.Show, Generic)
-    deriving anyclass (FromJSON, ToJSON, ToSchema)
+    deriving anyclass (FromJSON, ToJSON, ToSchema, OApi.ToSchema)
+
+instance Prelude.Ord BountyParams where
+  _ <= _ = True
 
 --  | Parameters for the "solution" endpoint
 newtype SolutionParams = SolutionParams
     { proposed_solution :: Integer
     }
-    deriving stock (Prelude.Eq, Prelude.Show, Generic)
-    deriving anyclass (FromJSON, ToJSON, ToSchema, ToArgument)
+    deriving stock (Prelude.Eq, Prelude.Show, Prelude.Ord, Generic)
+    deriving anyclass (FromJSON, ToJSON, ToSchema, ToArgument, OApi.ToSchema)
 
 -- | The schema of the contract, with one endpoint to publish the problem with a bounty and another to sbumit solutions
 type MathBountySchema =
@@ -111,28 +124,54 @@ type MathBountySchema =
 
 -- | The "bounty" contract endpoint.
 bounty :: forall  e. AsContractError e => BountyParams -> Contract () MathBountySchema e ()
-bounty (BountyParams t amt deadline) = do
-    let  datum = MathBountyDatum t deadline
-         tx   = Constraints.mustPayToTheScript datum amt
+bounty (BountyParams t amt) = do
+    let  datum = MathBountyDatum t 
+         tx   = Constraints.mustPayToTheScript datum (lovelaceValueOf amt)
          
     ledgerTx <- submitTxConstraints bountyInstance tx
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
-    logInfo @String $ printf "made a bounty of %d" $ getLovelace $ fromValue amt
+    logInfo @String $ printf "made a bounty of %d" $ amt
 
 -- | The "solution" contract endpoint.
-solution :: forall  e. AsContractError e => SolutionParams -> Contract () MathBountySchema e ()
+-- solution :: forall  e. AsContractError e => SolutionParams -> Contract () MathBountySchema e ()
+-- solution (SolutionParams theProposal) = do
+--     now <- currentTime
+--     unspentOutputs <- utxosAt bountyAddress
+
+--     -- 'collectFromScript' is a function of the wallet API. It creates a tx consuming
+--     -- all unspent transaction outputs at a script address and pays them to a
+--     -- public key address owned by this wallet. 
+--     let tx = collectFromScript unspentOutputs theProposal
+--            -- <> Constraints.mustValidateIn (from now)
+--     ledgerTx <- submitTxConstraintsSpending bountyInstance unspentOutputs tx
+--     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
+--     logInfo @String $ printf "proposed solution is %d" theProposal
+
+-- | The "solution" contract endpoint.
+solution :: forall e . AsContractError e => SolutionParams -> Contract () MathBountySchema e ()
 solution (SolutionParams theProposal) = do
-    now <- currentTime
+    logInfo @String $ "the proposal is" <> Prelude.show theProposal
     unspentOutputs <- utxosAt bountyAddress
 
     -- 'collectFromScript' is a function of the wallet API. It creates a tx consuming
     -- all unspent transaction outputs at a script address and pays them to a
-    -- public key address owned by this wallet. 
-    let tx = collectFromScript unspentOutputs theProposal
-           <> Constraints.mustValidateIn (from now)
-    ledgerTx <- submitTxConstraintsSpending bountyInstance unspentOutputs tx
-    void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
-    logInfo @String $ printf "proposed solution is %d" theProposal
+    -- public key address owned by this wallet.
+    logInfo @String $ Prelude.show $ Map.toList unspentOutputs
+    case Map.toList unspentOutputs of
+      (oref,a):utxos -> do
+        let lookups = Constraints.unspentOutputs (Map.fromList [(oref,a)]) Prelude.<>
+                      Constraints.otherScript validator
+        
+        let tx = Constraints.mustSpendScriptOutput oref  (Redeemer $ toBuiltinData theProposal)
+        logInfo @String $ printf "Trying to build tx"
+        --ledgerTx <- submitTxConstraintsSpending bountyInstance unspentOutputs tx
+        ledgerTx <- submitTxConstraintsWith @Void lookups tx
+        void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
+        logInfo @String $ printf "proposed solution is %d" theProposal
+      _ ->
+        logInfo @String $ printf "no bunties"
+
+
 
 -- | Math bounty endpoints.
 endpoints :: forall  e. AsContractError e => Contract () MathBountySchema e ()
@@ -156,8 +195,8 @@ myTrace = do
     h2 <- Trace.activateContractWallet (knownWallet 2) $ endpoints @ContractError
     Trace.callEndpoint @"bounty" h1 $ BountyParams
         { bTarget       = 4
-        , bDeadline     = slotToBeginPOSIXTime def 10
-        , bAmount       = Ada.lovelaceValueOf 10_000_000
+--        , bDeadline     = slotToBeginPOSIXTime def 10
+        , bAmount       = 10_000_000
         }
     void $ Trace.waitUntilSlot 20
     Trace.callEndpoint @"solution" h2 (SolutionParams 2)

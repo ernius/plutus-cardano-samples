@@ -27,6 +27,7 @@ module Auction
     , printSchemas
     , stage
     , testAuction
+    , testAuction2
     ) where
 
 import           Control.Monad        hiding (fmap)
@@ -60,10 +61,11 @@ import Control.Monad (forM_)
 import Wallet.Emulator.MultiAgent
 import Plutus.Trace.Emulator.Types
 import System.IO
+import Data.Text.Internal.Fusion.Size (codePointsSize)
 
 
 minLovelace :: Integer
-minLovelace = 2000000
+minLovelace = 2_000_000
 
 data Auction = Auction
     { aSeller   :: !PaymentPubKeyHash
@@ -207,9 +209,12 @@ mkAuctionValidator ad redeemer ctx =
 
     correctBidSlotRange :: Bool
     correctBidSlotRange = to (aDeadline auction) `contains` txInfoValidRange info
-                                      
+    --                       (--- valid range of x --)
+    --                   (-inf .....            deadline)
     correctCloseSlotRange :: Bool
     correctCloseSlotRange = from (aDeadline auction) `contains` txInfoValidRange info
+    --                       (--- valid range of x --)
+    --                   (-deadline .....            inf)
 
     getsValue :: PaymentPubKeyHash -> Value -> Bool
     getsValue h v =
@@ -228,6 +233,7 @@ typedAuctionValidator = Scripts.mkTypedValidator @Auctioning
   where
     wrap = Scripts.wrapValidator @AuctionDatum @AuctionAction
 
+-- Off chain code
 auctionValidator :: Validator
 auctionValidator = Scripts.validatorScript typedAuctionValidator
 
@@ -264,6 +270,7 @@ start :: AsContractError e => StartParams -> Contract w s e ()
 start StartParams{..} = do
     logInfo @P.String "---------------- Start Auction ----------------------------------------"  
     pkh <- ownPaymentPubKeyHash
+           
     let a = Auction
                 { aSeller   = pkh
                 , aDeadline = spDeadline
@@ -281,6 +288,7 @@ start StartParams{..} = do
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
     logInfo @P.String $ printf "started auction %s for token %s" (P.show a) (P.show v)
 
+-- homework try to log an error message when the deadline is reached
 bid :: forall w s. BidParams -> Contract w s Text ()
 bid BidParams{..} = do
     logInfo @P.String "---------------- Make a bid ----------------------------------------"
@@ -295,8 +303,9 @@ bid BidParams{..} = do
         v  = Value.singleton bpCurrency bpToken 1 <> Ada.lovelaceValueOf (minLovelace + bpBid)
         r  = Redeemer $ PlutusTx.toBuiltinData $ MkBid b
 
-        lookups = Constraints.typedValidatorLookups typedAuctionValidator P.<>
-                  Constraints.otherScript auctionValidator                P.<>
+        -- explained here https://cardano.stackexchange.com/questions/2296/lecture-6-it-2-core-hs-explaining-lookups-use-of-both-typedvalidatorlook
+        lookups = Constraints.typedValidatorLookups typedAuctionValidator P.<> -- used for the output utxo with the new contract instance
+                  Constraints.otherScript auctionValidator                P.<> -- used for consuming the input contract instance
                   Constraints.unspentOutputs (Map.singleton oref o)
         tx      = case adHighestBid of
                     Nothing      -> Constraints.mustPayToTheScript d' v                            <>
@@ -402,6 +411,9 @@ emCfg = Trace.EmulatorConfig (Left $ Map.fromList [(knownWallet 1, v1),  (knownW
 testAuction :: IO ()
 testAuction = Trace.runEmulatorTraceIO' traceConfig emCfg myTrace
 
+testAuction2 :: IO ()
+testAuction2 = Trace.runEmulatorTraceIO' traceConfig emCfg myTrace2
+
 currSymbol :: CurrencySymbol
 currSymbol = currencySymbol "dcddcaa"
 
@@ -442,6 +454,31 @@ myTrace = do
     Trace.callEndpoint @"bid" h2 (BidParams currSymbol tName 20_000_000)
     s <- Trace.waitNSlots 1
     Trace.callEndpoint @"bid" h3 (BidParams currSymbol tName 10_000_000)    
+    s <- Trace.waitNSlots 10
+    Trace.callEndpoint @"close" h2 (CloseParams currSymbol tName)
+    void $ Trace.waitNSlots 2    
+
+myTrace2 :: Trace.EmulatorTrace ()
+myTrace2 = do
+    let wallets = P.show $ P.map P.show knownWallets
+    Extras.logInfo $ "Wallets: " ++ wallets    
+
+    h1 <- Trace.activateContractWallet (knownWallet 1) $ endpoints 
+    h2 <- Trace.activateContractWallet (knownWallet 2) $ endpoints
+    h3 <- Trace.activateContractWallet (knownWallet 3) $ endpoints
+    
+    Trace.callEndpoint @"start" h1 $ StartParams
+        { spDeadline     = slotToBeginPOSIXTime def 10
+        , spMinBid       = 5_000_000
+        , spCurrency     = currSymbol
+        , spToken        = tName
+        }
+    void $ Trace.waitUntilSlot 2
+    Trace.callEndpoint @"bid" h2 (BidParams currSymbol tName 6_000_000)
+    s <- Trace.waitNSlots 2
+    Trace.callEndpoint @"bid" h3 (BidParams currSymbol tName 30_000_000)
+    s <- Trace.waitNSlots 2
+    Trace.callEndpoint @"bid" h1 (BidParams currSymbol tName 60_000_000)
     s <- Trace.waitNSlots 10
     Trace.callEndpoint @"close" h2 (CloseParams currSymbol tName)
     void $ Trace.waitNSlots 2    
